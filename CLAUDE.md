@@ -9,9 +9,10 @@ Ace's personal monthly budget tracker. Live at https://route-to-debt-free.vercel
 - Search `index.html` for these landmarks: `const SUPA` (sync service), `DEFAULT_GROUPS`, `calc(` (all the maths), `viewOverview`, `viewBudget`, `viewDebt`, `viewSettings`, `handle(` (all button actions), `xlsxBlob` (Excel export).
 
 ## Data model
-- A month: `{id:'YYYY-MM', payday, note, income:[{id,label,amount,received}], lines:[{id,category,remarks,amount,actual,paid,group,termCurrent,termTotal}]}`
+- A month: `{id:'YYYY-MM', payday, note, hidden, income:[{id,label,amount,received}], lines:[{id,category,remarks,amount,actual,paid,group,termCurrent,termTotal}]}`
 - Settings: `{name, currency, groups:[{name,hex,locked}]}`. Savings and Other are locked groups. Savings is kept out of the expenses total on purpose.
 - A line with `termTotal` above 0 is an instalment. "New month" copies the plan, adds 1 to `termCurrent` and drops lines that have finished.
+- `hidden: true` keeps a month out of the month dropdown (toggled with Hide/Show in Settings). The data stays and syncs. At least one month must stay visible.
 - The Excel export is a hand written .xlsx writer with no libraries. Do not add one.
 
 ## Storage and sync

@@ -409,6 +409,7 @@ function toast(msg){
   clearTimeout(t._t); t._t = setTimeout(()=>t.classList.remove('on'), 2000);
 }
 function sortedMonthIds(){ return Object.keys(state.months).sort(); }
+function visibleMonthIds(){ return sortedMonthIds().filter(id=>!state.months[id].hidden); }
 function activeMonth(){ return state.months[state.monthId] || null; }
 
 /* ============ storage (db with local fallback) ============ */
@@ -1086,13 +1087,20 @@ function viewDebt(){
 function viewSettings(){
   const m = activeMonth();
   const ids = sortedMonthIds();
-  const list = ids.map(id=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:11px 18px;border-bottom:1px solid var(--line)">
-      <div><b>${esc(monthLabel(id))}</b><div class="rm">${(state.months[id].lines||[]).length} lines &middot; ${money((state.months[id].income||[]).reduce((a,l)=>a+num(l.amount),0))} in</div></div>
-      <div style="display:flex;gap:6px">
+  const shownCount = visibleMonthIds().length;
+  const hiddenCount = ids.length - shownCount;
+  const list = ids.map(id=>{
+    const hid = !!state.months[id].hidden;
+    return `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:11px 18px;border-bottom:1px solid var(--line)">
+      <div style="min-width:0;${hid?'opacity:.55':''}"><b>${esc(monthLabel(id))}</b><div class="rm">${hid?'<b>Hidden</b> &middot; ':''}${(state.months[id].lines||[]).length} lines &middot; ${money((state.months[id].income||[]).reduce((a,l)=>a+num(l.amount),0))} in</div></div>
+      <div style="display:flex;gap:6px;flex:0 0 auto">
         <button class="btn sm" data-act="open-month" data-id="${id}">Open</button>
+        ${hid ? `<button class="btn sm" data-act="hide-month" data-id="${id}">Show</button>`
+              : (shownCount>1 ? `<button class="btn sm" data-act="hide-month" data-id="${id}">Hide</button>` : '')}
         ${ids.length>1?`<button class="btn sm danger" data-act="del-month" data-id="${id}">Delete</button>`:''}
       </div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 
   return `<div class="two">
     <div class="card">
@@ -1109,7 +1117,7 @@ function viewSettings(){
       </div>
     </div>
     <div class="card">
-      <div class="sec-head"><h3>Months</h3><span class="muted">${ids.length} saved</span></div>
+      <div class="sec-head"><h3>Months</h3><span class="muted">${ids.length} saved${hiddenCount?' &middot; '+hiddenCount+' hidden':''}</span></div>
       ${list||'<div class="empty">No months yet</div>'}
       <div class="pad"><button class="btn primary" id="newMonthBtn2" style="width:100%">+ Start a new month</button>
         <div style="display:flex;gap:8px;margin-top:9px">
@@ -1211,7 +1219,7 @@ function render(){
     : 'Set up your first month to begin';
 
   const sel = $('#monthSel');
-  sel.innerHTML = sortedMonthIds().map(id=>`<option value="${id}" ${id===state.monthId?'selected':''}>${monthLabel(id)}</option>`).join('');
+  sel.innerHTML = sortedMonthIds().filter(id=>!state.months[id].hidden || id===state.monthId).map(id=>`<option value="${id}" ${id===state.monthId?'selected':''}>${monthLabel(id)}</option>`).join('');
 
   const navHtml = TABS.map(t=>`<button class="nav-btn ${state.tab===t.id?'on':''}" data-tab="${t.id}">${ICONS[t.id]}<span>${t.label}</span></button>`).join('');
   $('#navDesk').innerHTML = navHtml;
@@ -1398,7 +1406,16 @@ async function handle(act, id, ev){
     case 'del-month': {
       if(!confirm('Delete '+monthLabel(id)+'? This cannot be undone.')) break;
       await removeMonth(id);
-      if(state.monthId===id) state.monthId = sortedMonthIds()[0]||null;
+      if(state.monthId===id) state.monthId = pickMonth();
+      render(); break;
+    }
+    case 'hide-month': {
+      const hm = state.months[id]; if(!hm) break;
+      if(!hm.hidden && visibleMonthIds().length<=1){ toast('Keep at least one month showing'); break; }
+      hm.hidden = !hm.hidden;
+      await saveMonth(hm);
+      if(hm.hidden && state.monthId===id) state.monthId = pickMonth();
+      toast(monthLabel(id)+(hm.hidden?' hidden':' showing again'));
       render(); break;
     }
     case 'save-settings': {
@@ -1531,7 +1548,7 @@ async function seedIfEmpty(){
   await saveMonth(m);
 }
 function pickMonth(){
-  const ids = sortedMonthIds();
+  const ids = visibleMonthIds().length ? visibleMonthIds() : sortedMonthIds();
   if(!ids.length) return null;
   const t = todayId();
   return ids.includes(t) ? t : ids[ids.length-1];
