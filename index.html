@@ -190,6 +190,22 @@ select.inp{appearance:none;background-image:url("data:image/svg+xml;utf8,<svg xm
 .toast.on{opacity:1;bottom:100px}
 .empty{padding:36px 18px;text-align:center;color:var(--muted)}
 
+/* ---------- trend chart ---------- */
+.tr-chart{display:flex;align-items:flex-end;gap:10px;height:150px}
+.tr-col{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;height:100%;min-width:0}
+.tr-bars{flex:1;width:100%;display:flex;align-items:flex-end;justify-content:center;gap:4px}
+.tr-bars i{display:block;width:min(16px,40%);min-height:2px;border-radius:5px 5px 2px 2px;transition:height .45s cubic-bezier(.22,.61,.36,1)}
+.tr-col span{font-size:11.5px;font-weight:700;color:var(--muted)}
+.tr-col span.on{color:var(--ink)}
+
+/* ---------- sync paused banner ---------- */
+#syncBanner:empty{display:none}
+.sync-warn{background:var(--warn-soft);border:1px solid var(--warn);border-radius:var(--r-sm);padding:12px 14px;margin-bottom:16px;display:flex;gap:11px;align-items:flex-start}
+.sync-warn svg{width:19px;height:19px;flex:0 0 19px;color:var(--warn);margin-top:1px}
+.sync-warn b{display:block;font-size:13.5px}
+.sync-warn p{margin:3px 0 0;font-size:12.5px;color:var(--muted)}
+.sync-warn .acts{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+
 /* ---------- tick control ---------- */
 .tick{
   display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line);background:var(--card);
@@ -310,6 +326,7 @@ input[type="date"].inp::-webkit-calendar-picker-indicator,input[type="month"].in
         <button class="btn sm primary" id="newMonthBtn">+ New month</button>
       </div>
     </div>
+    <div id="syncBanner"></div>
     <div id="view"></div>
   </main>
 </div>
@@ -683,10 +700,57 @@ function newCode(){
   return out.join('');
 }
 function normCode(s){ return String(s||'').toUpperCase().replace(/[^A-Z0-9-]/g,''); }
-function loadSyncCode(){ try{ SYNC.code = localStorage.getItem('rtdf.sync') || null; }catch(e){} }
+function loadSyncCode(){
+  try{
+    SYNC.code = localStorage.getItem('rtdf.sync') || null;
+    SYNC.okAt = num(localStorage.getItem('rtdf.syncOk')) || 0;
+    SYNC.failSince = num(localStorage.getItem('rtdf.syncFail')) || 0;
+  }catch(e){}
+}
 function storeSyncCode(c){
   SYNC.code = c || null;
   try{ c ? localStorage.setItem('rtdf.sync', c) : localStorage.removeItem('rtdf.sync'); }catch(e){}
+  if(!c) noteSyncHealth('off');
+}
+/* remembers when sync last worked and when it started failing, so the warning survives closing the app */
+function noteSyncHealth(st){
+  const now = Date.now();
+  if(st === 'ok'){ SYNC.okAt = now; SYNC.failSince = 0; }
+  else if(st === 'error'){ if(!SYNC.failSince) SYNC.failSince = now; }
+  else if(st === 'off'){ SYNC.failSince = 0; }
+  else return;
+  try{
+    localStorage.setItem('rtdf.syncOk', String(SYNC.okAt||0));
+    SYNC.failSince ? localStorage.setItem('rtdf.syncFail', String(SYNC.failSince)) : localStorage.removeItem('rtdf.syncFail');
+  }catch(e){}
+}
+function syncPaused(){
+  if(!syncOn() || SYNC.status !== 'error' || !SYNC.failSince) return false;
+  const now = Date.now();
+  // a short blip stays on the chip only; show the warning after a minute, or at once if the last good sync is over an hour old
+  return now - SYNC.failSince > 60000 || !SYNC.okAt || now - SYNC.okAt > 3600000;
+}
+function whenText(t){
+  const d = new Date(t), today = new Date();
+  if(d.toDateString() === today.toDateString()) return 'today at ' + clockText(d);
+  return d.getDate() + ' ' + MONTH_NAMES[d.getMonth()].slice(0,3) + ', ' + clockText(d);
+}
+function paintSyncBanner(){
+  const el = $('#syncBanner'); if(!el) return;
+  if(!syncPaused()){ if(el.innerHTML) el.innerHTML = ''; return; }
+  const since = SYNC.okAt ? 'Last synced ' + whenText(SYNC.okAt) + '.' : 'This device has not synced yet.';
+  el.innerHTML = `<div class="sync-warn" role="status">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3l18 18"/><path d="M18.4 18H7a4 4 0 01-.9-7.9 6 6 0 012.2-3.6M12 5a6 6 0 015.6 3.9A4.5 4.5 0 0120.8 15"/></svg>
+    <div style="min-width:0;flex:1">
+      <b>Sync is paused</b>
+      <p>${since} Your changes are saved on this device only for now. They will send by themselves when sync is back.</p>
+      ${state.syncWhy ? `<p>Either this device is offline, or the sync service has paused. Nothing is lost. If it still says paused tomorrow, the sync service needs restarting in Supabase.</p>` : ''}
+      <div class="acts">
+        <button class="btn sm primary" data-act="sync-retry">Try again</button>
+        <button class="btn sm" data-act="sync-why">${state.syncWhy ? 'Hide details' : 'What happened?'}</button>
+      </div>
+    </div>
+  </div>`;
 }
 async function rpc(fn, body){
   const r = await fetch(SUPA.url + '/rest/v1/rpc/' + fn, {
@@ -700,7 +764,7 @@ async function rpc(fn, body){
 function snapshot(){
   return {v:1, stamp: state.stamp || new Date().toISOString(), settings: state.settings, months: state.months};
 }
-function setSync(st){ SYNC.status = st; paintSyncChip(); }
+function setSync(st){ SYNC.status = st; noteSyncHealth(st); paintSyncChip(); paintSyncBanner(); }
 function clockText(d){
   try{ return d.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'}); }catch(e){ return ''; }
 }
@@ -977,7 +1041,41 @@ function viewOverview(){
       </div>
     </div>`;
   }
-  return kpis + progress + `<div class="two">${chart}${biggest}</div>` + payoff;
+  return kpis + progress + `<div class="two">${chart}${biggest}</div>` + trendCard(m) + payoff;
+}
+
+/* last 6 visible months up to the open one: what was actually paid (ticked) each month */
+function trendCard(m){
+  const ids = sortedMonthIds().filter(id=>id<=m.id && (id===m.id || !state.months[id].hidden)).slice(-6);
+  if(ids.length < 2) return '';
+  const rows = ids.map(id=>{ const c = calc(state.months[id]); return {id, spent:c.actSpend, saved:c.actSave}; });
+  const max = Math.max(1, ...rows.map(r=>Math.max(r.spent, r.saved)));
+  const saveHex = groupHex('Savings');
+  const bars = rows.map(r=>`
+    <div class="tr-col" title="${esc(monthLabel(r.id))}: spent ${money(r.spent)}, saved ${money(r.saved)}">
+      <div class="tr-bars">
+        <i style="height:${Math.round(r.spent/max*100)}%;background:var(--accent)"></i>
+        <i style="height:${Math.round(r.saved/max*100)}%;background:${saveHex}"></i>
+      </div>
+      <span class="${r.id===m.id?'on':''}">${MONTH_NAMES[parseInt(r.id.slice(5),10)-1].slice(0,3)}</span>
+    </div>`).join('');
+  const cur = rows[rows.length-1], prev = rows[rows.length-2];
+  const d = cur.spent - prev.spent;
+  const curLabel = MONTH_NAMES[parseInt(cur.id.slice(5),10)-1];
+  const prevLabel = MONTH_NAMES[parseInt(prev.id.slice(5),10)-1];
+  const note = d===0 ? `Same spending as ${prevLabel} so far.`
+    : `${curLabel} so far: ${money(Math.abs(d))} ${d<0?'less':'more'} spent than ${prevLabel}.`;
+  return `<div class="card" style="margin-top:14px">
+    <div class="sec-head"><h3>Month by month</h3><span class="muted">Paid bills only</span></div>
+    <div class="pad">
+      <div class="tr-chart">${bars}</div>
+      <div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:12px;font-size:12px;font-weight:600" class="muted">
+        <span><i class="dot" style="display:inline-block;background:var(--accent);margin-right:5px"></i>Spent</span>
+        <span><i class="dot" style="display:inline-block;background:${saveHex};margin-right:5px"></i>Saved</span>
+        <span style="margin-left:auto;color:${d>0?'var(--bad)':(d<0?'var(--ok)':'var(--muted)')}">${note}</span>
+      </div>
+    </div>
+  </div>`;
 }
 
 function viewBudget(){
@@ -1188,6 +1286,8 @@ function liveRefresh(){
   setLive('duecount', (c.total - c.paidCount) + ' still due');
   const bar = document.querySelector('[data-live="progress-bar"]');
   if(bar) bar.style.width = pct + '%';
+  const trend = document.querySelector('.tr-chart');
+  if(trend){ const html = trendCard(m); if(html) trend.closest('.card').outerHTML = html; }
   (m.lines||[]).forEach(l=>{
     const cell = document.querySelector('[data-live="actual-'+l.id+'"]');
     if(!cell) return;
@@ -1230,6 +1330,7 @@ function render(){
   const eb = $('#exportBtn'); if(eb && !eb.dataset.init){ eb.innerHTML = ICONS.down + '<span>Export</span>'; eb.dataset.init='1'; }
 
   paintSyncChip();
+  paintSyncBanner();
   const v = $('#view');
   if(state.booting && !activeMonth()) v.innerHTML = skeleton();
   else if(state.tab==='overview') v.innerHTML = viewOverview();
@@ -1493,6 +1594,14 @@ async function handle(act, id, ev){
     }
     case 'sync-now': await syncPull(); await syncPush(); render(); toast('Up to date'); break;
     case 'sync-eye': state.showCode = !state.showCode; render(); break;
+    case 'sync-retry': {
+      toast('Trying to reach sync');
+      await syncPull();
+      if(SYNC.status === 'ok'){ await syncPush(true); toast('Sync is back. Your changes were sent.'); }
+      else toast('Still paused. Your changes stay safe on this device.');
+      break;
+    }
+    case 'sync-why': state.syncWhy = !state.syncWhy; paintSyncBanner(); break;
     case 'sync-copy': {
       try{ await navigator.clipboard.writeText(SYNC.code); toast('Code copied'); }
       catch(err){ state.showCode = true; render(); toast('Copy it by hand from the box above'); }
