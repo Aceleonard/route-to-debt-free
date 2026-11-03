@@ -4,7 +4,8 @@ Ace's personal monthly budget tracker. Live at https://route-to-debt-free.vercel
 
 ## How the project is built
 - The whole app is one file: `index.html` (HTML, CSS and JavaScript inline). No build step, no packages, no framework.
-- Other files: `manifest.json` and `icon.png` (256px home screen icon). Keep the icon artwork inside the middle safe area, because iOS rounds the corners and clipped it once.
+- Other files: `manifest.json`, `icon.png` (512px, also the browser tab icon and the sidebar badge) and `apple-touch-icon.png` (180px, the iPhone Home Screen icon). Keep the icon artwork inside the middle safe area, because iOS rounds the corners and clipped it once. When the icon changes, bump the `?v=` number on every icon link so phones fetch the new one.
+- Fields (`.inp`, `.sel`) must be 16px on iPhone and iPad, otherwise Safari zooms in when one is tapped and stays zoomed. See the rules at the end of the CSS.
 - Search `index.html` for these landmarks: `const SUPA` (sync service), `DEFAULT_GROUPS`, `calc(` (all the maths), `viewOverview`, `viewBudget`, `viewDebt`, `viewSettings`, `handle(` (all button actions), `xlsxBlob` (Excel export).
 
 ## Data model
